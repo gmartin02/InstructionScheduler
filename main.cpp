@@ -22,13 +22,15 @@ class instruction {
         string src1;
         string src2;
         int tag;
-    instruction (int address, int operation, string dest, string src1, string src2) {   // Added instruction constructor to make adding instructions to dispatch easier.
+    instruction (int address, int operation, string dest, string src1, string src2, int tag) {   // Added instruction constructor to make adding instructions to dispatch easier.
         this->address = address;
         this->operation = operation;
         this->dest = dest;
         this->src1 = src1;
         this->src2 = src2;
+        this->tag = fetch_count + 1;
         this->state = IF;
+        fetch_count++; // increment tag at every instruction object creation.
     };
 };
 
@@ -58,6 +60,7 @@ const int MAX_SIZE = 1024; // Max size for queue sizes.
 
 //Cycle that program is on
 int cycle = 0;
+int fetch_count = 0; // tag counter.
 
 int main(int argc, const char * argv[]) {
     do {
@@ -127,7 +130,7 @@ void Fetch() {
         ss >> dest;
         ss >> src1;
         ss >> src2;
-        dispatch.push_back(instruction(address, operation, dest, src1, src2)); // Add to dispatch queue.
+        dispatch.push_back(instruction(address, operation, dest, src1, src2, fetch_count)); // Add to dispatch queue.
         return;
     }
     cerr << "\nDispatch queue at maximum size, will try again next cycle.\n";
