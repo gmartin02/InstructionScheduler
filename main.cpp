@@ -5,6 +5,11 @@
 #include <vector>
 using namespace std;
 
+int fetch_count = 0; // tag counter.
+const int MAX_SIZE = 1024; // Max size for queue sizes.
+int cycle = 0; // Cycle that program is on
+ifstream file("val_trace_gcc.txt");
+
 enum state_list {
     IF,     //Fetch State
     ID,     //Dispatch State
@@ -15,20 +20,20 @@ enum state_list {
 
 class instruction {
     public:
-        enum state_list state;
-        int address;
-        int operation;
-        string dest;
-        string src1;
-        string src2;
-        int tag;
+    enum state_list state;
+    int address;
+    int operation;
+    string dest;
+    string src1;
+    string src2;
+    int tag;
     instruction (int address, int operation, string dest, string src1, string src2, int tag) {   // Added instruction constructor to make adding instructions to dispatch easier.
         this->address = address;
         this->operation = operation;
         this->dest = dest;
         this->src1 = src1;
         this->src2 = src2;
-        this->tag = fetch_count + 1;
+        this->tag = fetch_count;
         this->state = IF;
         fetch_count++; // increment tag at every instruction object creation.
     };
@@ -36,11 +41,11 @@ class instruction {
 
 class Queue {   // Kept queue around just in case.
     private:
-        instruction front;
-        instruction rear;
-        instruction arr[1024];
+    instruction front;
+    instruction rear;
+    instruction arr[1024];
     public:
-
+    
 };
 
 void FakeRetire();
@@ -54,13 +59,6 @@ bool isEmpty();
 vector<instruction> dispatch;
 vector<instruction> issue;
 vector<instruction> execute;
-ifstream file("val_trace_gcc.txt");
-
-const int MAX_SIZE = 1024; // Max size for queue sizes.
-
-//Cycle that program is on
-int cycle = 0;
-int fetch_count = 0; // tag counter.
 
 int main(int argc, const char * argv[]) {
     do {
@@ -80,8 +78,9 @@ int main(int argc, const char * argv[]) {
     while (file.is_open() && !file.eof()) {
         Fetch();
     }
-    cout << dispatch.back().address << endl; // Some test code to display if each instruction was read properly.
+    cout << dispatch.front().address << endl; // Some test code to display if each instruction was read properly.
     */
+    
     
 }
 
@@ -124,7 +123,7 @@ void Fetch() {
         stringstream ss(line);
         string temp;
         ss >> temp;
-        address = stoi(temp, nullptr, 16); // Intrepret string as hex and store it as integer, might have to change this to store as actual hex.
+        address = stoi(temp, nullptr, 16); // Interpret string as hex and store it as integer, might have to change this to store as actual hex.
         ss >> temp;
         operation = stoi(temp); 
         ss >> dest;
