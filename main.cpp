@@ -22,18 +22,17 @@ class instruction {
         string src1;
         string src2;
         int tag;
-    instruction (int address, int operation, string dest, string src1, string src2) {
+    instruction (int address, int operation, string dest, string src1, string src2) {   // Added instruction constructor to make adding instructions to dispatch easier.
         this->address = address;
         this->operation = operation;
         this->dest = dest;
         this->src1 = src1;
         this->src2 = src2;
-        //this->tag = tag;
         this->state = IF;
     };
 };
 
-class Queue {
+class Queue {   // Kept queue around just in case.
     private:
         instruction front;
         instruction rear;
@@ -55,13 +54,13 @@ vector<instruction> issue;
 vector<instruction> execute;
 ifstream file("val_trace_gcc.txt");
 
-const int MAX_SIZE = 100000;
+const int MAX_SIZE = 1024; // Max size for queue sizes.
 
 //Cycle that program is on
 int cycle = 0;
 
 int main(int argc, const char * argv[]) {
-    /*do {
+    do {
         FakeRetire();
         Execute();
         Issue();
@@ -71,14 +70,15 @@ int main(int argc, const char * argv[]) {
         }
     } while(Advance_Cycle());
     
-    return 0;*/
+    return 0;
 
-    
+    /*
     //Some test code I used to test fetch.
     while (file.is_open() && !file.eof()) {
         Fetch();
     }
     cout << dispatch.back().address << endl; // Some test code to display if each instruction was read properly.
+    */
     
 }
 
@@ -109,25 +109,25 @@ void Fetch() {
     int tag;
     string line;
 
-    if (dispatch.size() < MAX_SIZE) {
+    if (dispatch.size() < MAX_SIZE) { // Check if the dispatch queue is full. If yes, we skip for the time-being.
         getline(file, line);
-        if (line == "") {
+        if (line == "") { // The trace file has a weird empty line at the end which throws off the entire code, so I made sure to check for empty lines.
             file.close();
             return;
         }
-        if (file.eof()) {
+        if (file.eof()) { // If the file has reached the end, we close it.
             file.close();
         }
         stringstream ss(line);
         string temp;
         ss >> temp;
-        address = stoi(temp, nullptr, 16);
+        address = stoi(temp, nullptr, 16); // Intrepret string as hex and store it as integer, might have to change this to store as actual hex.
         ss >> temp;
-        operation = stoi(temp);
+        operation = stoi(temp); 
         ss >> dest;
         ss >> src1;
         ss >> src2;
-        dispatch.push_back(instruction(address, operation, dest, src1, src2));
+        dispatch.push_back(instruction(address, operation, dest, src1, src2)); // Add to dispatch queue.
         return;
     }
     cerr << "\nDispatch queue at maximum size, will try again next cycle.\n";
