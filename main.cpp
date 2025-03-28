@@ -1,15 +1,13 @@
+#include <string>
+#include <iostream>
 using namespace std;
-#include <string>;
-instruction dispatch[1024];
-instruction issue[1024];
-instruction execute[1024];
 
 enum state_list {
-    IF,
-    ID,
-    IS,
-    EX,
-    WB
+    IF,     //Fetch State
+    ID,     //Dispatch State
+    IS,     //Issue State
+    EX,     //Execute State
+    WB      //Write Back State
 };
 
 class instruction {
@@ -24,9 +22,64 @@ class instruction {
 
 class Queue {
     private:
-        instruction front; 
+        instruction front;
         instruction rear;
         instruction arr[1024];
     public:
 
 };
+
+void FakeRetire();
+void Execute();
+void Issue();
+void Dispatch();
+void Fetch();
+bool Advance_Cycle();
+
+instruction dispatch[1024];
+instruction issue[1024];
+instruction execute[1024];
+
+//Cycle that program is on
+int cycle = 0;
+
+int main(int argc, const char * argv[]) {
+    
+    do {
+        FakeRetire();
+        Execute();
+        Issue();
+        Dispatch();
+        Fetch();
+    } while(Advance_Cycle());
+    return 0;
+}
+
+void FakeRetire() {
+    
+}
+
+void Execute() {
+    
+}
+
+void Issue() {
+    
+}
+
+void Dispatch () {
+    
+}
+
+void Fetch() {
+    
+}
+
+bool Advance_Cycle() {
+    if() //If there are no more instructions left, end calculations
+        return false;
+    else { //If there are more instructions to calculate, increment to next cycle and continue
+        cycle++;
+        return true;
+    }
+}
