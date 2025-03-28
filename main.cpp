@@ -1,5 +1,8 @@
 #include <string>
 #include <iostream>
+#include <fstream>
+#include <sstream>
+#include <vector>
 using namespace std;
 
 enum state_list {
@@ -12,12 +15,22 @@ enum state_list {
 
 class instruction {
     public:
-        unsigned long long int address;
         enum state_list state;
+        int address;
+        int operation;
         string dest;
         string src1;
         string src2;
         int tag;
+    instruction (int address, int operation, string dest, string src1, string src2) {
+        this->address = address;
+        this->operation = operation;
+        this->dest = dest;
+        this->src1 = src1;
+        this->src2 = src2;
+        //this->tag = tag;
+        this->state = IF;
+    };
 };
 
 class Queue {
@@ -37,24 +50,36 @@ void Fetch();
 bool Advance_Cycle();
 bool isEmpty();
 
-instruction dispatch[1024];
-instruction issue[1024];
-instruction execute[1024];
+vector<instruction> dispatch;
+vector<instruction> issue;
+vector<instruction> execute;
+ifstream file("val_trace_gcc.txt");
+
+const int MAX_SIZE = 100000;
 
 //Cycle that program is on
 int cycle = 0;
 
 int main(int argc, const char * argv[]) {
-    
-    do {
+    /*do {
         FakeRetire();
         Execute();
         Issue();
         Dispatch();
-        Fetch();
+        if (file.is_open() && !file.eof()) {
+            Fetch();
+        }
     } while(Advance_Cycle());
     
-    return 0;
+    return 0;*/
+
+    
+    //Some test code I used to test fetch.
+    while (file.is_open() && !file.eof()) {
+        Fetch();
+    }
+    cout << dispatch.back().address << endl; // Some test code to display if each instruction was read properly.
+    
 }
 
 void FakeRetire() {
@@ -74,6 +99,38 @@ void Dispatch () {
 }
 
 void Fetch() {
+    // For reference
+    // <PC> <operation type> <dest reg #> <src1 reg #> <src2 reg #>
+    int address;
+    int operation;
+    string dest;
+    string src1;
+    string src2;
+    int tag;
+    string line;
+
+    if (dispatch.size() < MAX_SIZE) {
+        getline(file, line);
+        if (line == "") {
+            file.close();
+            return;
+        }
+        if (file.eof()) {
+            file.close();
+        }
+        stringstream ss(line);
+        string temp;
+        ss >> temp;
+        address = stoi(temp, nullptr, 16);
+        ss >> temp;
+        operation = stoi(temp);
+        ss >> dest;
+        ss >> src1;
+        ss >> src2;
+        dispatch.push_back(instruction(address, operation, dest, src1, src2));
+        return;
+    }
+    cerr << "\nDispatch queue at maximum size, will try again next cycle.\n";
     
 }
 
