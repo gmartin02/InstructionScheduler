@@ -3,6 +3,7 @@
 #include <fstream>
 #include <sstream>
 #include <vector>
+#include <algorithm>
 using namespace std;
 
 int fetch_count = 0; // tag counter.
@@ -59,20 +60,23 @@ bool isEmpty();
 vector<instruction> dispatch;
 vector<instruction> issue;
 vector<instruction> execute;
+vector<instruction> dispatch_latency; // The temporary queue for dispatch. It doesn't have a max size defined to it.
 
 int main(int argc, const char * argv[]) {
+    
     do {
-        FakeRetire();
-        Execute();
-        Issue();
+        //FakeRetire();
+        //Execute();
+        //Issue();
         Dispatch();
         if (file.is_open() && !file.eof()) {
             Fetch();
         }
+        cout << "hit" << endl;
     } while(Advance_Cycle());
-    
+     
     return 0;
-
+    
     /*
     //Some test code I used to test fetch.
     while (file.is_open() && !file.eof()) {
@@ -80,8 +84,6 @@ int main(int argc, const char * argv[]) {
     }
     cout << dispatch.front().address << endl; // Some test code to display if each instruction was read properly.
     */
-    
-    
 }
 
 void FakeRetire() {
@@ -97,7 +99,27 @@ void Issue() {
 }
 
 void Dispatch () {
-    
+
+    // We check if there is space avaliable in the issue queue.
+    if (issue.size() < MAX_SIZE) {
+        for (int i = 0; i < MAX_SIZE - issue.size(); i++) {     // For the amount of avaliable spots in issue queue, we move that many from dispatch to temp queue.
+            if (dispatch.front().state == IF) {break;}
+            dispatch_latency.push_back(dispatch.front());   // We can assume the first instruction will be the first to go since we're dealing with queues here.
+            dispatch.erase(dispatch.cbegin());
+        }
+
+        std::sort(dispatch_latency.begin(), dispatch_latency.end(), [](instruction a, instruction b) {  // Sort by tag, ascending order.
+            return a.tag < b.tag;
+        });
+
+        for (int i = 0; i < MAX_SIZE - issue.size(); i++) {     // For amount of avaliable spaces in issue queue, move that many to issue queue.
+            dispatch_latency.front().state = IS;
+            issue.push_back(dispatch_latency.front());
+            dispatch_latency.erase(dispatch_latency.cbegin());  // Erase moved instructions from temp queue.
+        }
+    }
+
+    // There needs to be something else in Dispatch() that renames the src1, src2, and dest operands. Its part of Tomasulo’s algorithm.
 }
 
 void Fetch() {
@@ -105,13 +127,14 @@ void Fetch() {
     // <PC> <operation type> <dest reg #> <src1 reg #> <src2 reg #>
     int address;
     int operation;
+    int tag;
+    int fetch_bandwidth = 0;
     string dest;
     string src1;
     string src2;
-    int tag;
     string line;
 
-    if (dispatch.size() < MAX_SIZE) { // Check if the dispatch queue is full. If yes, we skip for the time-being.
+    while (dispatch.size() < MAX_SIZE && fetch_bandwidth != 30) { // Check if the dispatch queue is full. If yes, we skip for the time-being.
         getline(file, line);
         if (line == "") { // The trace file has a weird empty line at the end which throws off the entire code, so I made sure to check for empty lines.
             file.close();
@@ -120,6 +143,7 @@ void Fetch() {
         if (file.eof()) { // If the file has reached the end, we close it.
             file.close();
         }
+        fetch_bandwidth++;
         stringstream ss(line);
         string temp;
         ss >> temp;
@@ -130,10 +154,8 @@ void Fetch() {
         ss >> src1;
         ss >> src2;
         dispatch.push_back(instruction(address, operation, dest, src1, src2, fetch_count)); // Add to dispatch queue.
-        return;
+        cout << tag << endl;
     }
-    cerr << "\nDispatch queue at maximum size, will try again next cycle.\n";
-    
 }
 
 bool Advance_Cycle() {
@@ -147,10 +169,15 @@ bool Advance_Cycle() {
 
 //Checks if empty. Very bad optimization, needs to be adjusted
 bool isEmpty() {
-    for(int i = 0; i <= 1024; i++) {
+    /*for(int i = 0; i <= MAX_SIZE; i++) {
         if (dispatch[i].state != WB && dispatch[i].state != IF) return false;
         if (issue[i].state != WB && issue[i].state != IF) return false;
         if (execute[i].state != WB && execute[i].state != IF) return false;
+    }*/
+    for(int i = 0; i <= MAX_SIZE; i++) {
+        if (dispatch.size() != 0) return false;
+        if (issue.size() != 0) return false;
+        if (execute.size() != 0) return false;
     }
     return true;
 }
