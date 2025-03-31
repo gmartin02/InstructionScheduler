@@ -61,6 +61,7 @@ vector<instruction> dispatch;
 vector<instruction> issue;
 vector<instruction> execute;
 vector<instruction> dispatch_latency; // The temporary queue for dispatch. It doesn't have a max size defined to it.
+vector<instruction> fakeROB;
 
 int main(int argc, const char * argv[]) {
     
@@ -87,7 +88,11 @@ int main(int argc, const char * argv[]) {
 }
 
 void FakeRetire() {
-    
+    for(int i = 0; i < fakeROB.size(); ++i) { //Checks instrs in fakeROB. If WB state found, remove instr
+        if(fakeROB[i].state == WB) {
+            fakeROB.erase(fakeROB.begin() + i);
+        }
+    }
 }
 
 void Execute() {
@@ -97,7 +102,7 @@ void Execute() {
             execute.erase(execute.begin() + i);  // Removing the instrucion from execute queue because it has now been move to the writeback queue
             --i;  //This line is to make sure the next instruction in the curent position is not skipped after removal of the previous instruction.
         }
-    }   
+    }
 }
 
 void Issue() {
@@ -108,7 +113,7 @@ void Issue() {
             issue.erase(issue.begin() + i);  // Removing the instrucion from issue queue because it has now been moved to the excute queue
             --i;  // This line is to make sure the next instruction in the curent position is not skipped after removal of the previous instruction.
         }
-    }    
+    }
 }
 
 void Dispatch () {
@@ -175,7 +180,7 @@ void Fetch() {
         ss >> temp;
         address = stoi(temp, nullptr, 16); // Interpret string as hex and store it as integer, might have to change this to store as actual hex.
         ss >> temp;
-        operation = stoi(temp); 
+        operation = stoi(temp);
         ss >> dest;
         ss >> src1;
         ss >> src2;
