@@ -91,11 +91,24 @@ void FakeRetire() {
 }
 
 void Execute() {
-    
+    for (int i = 0; i < execute.size(); ++i) { // For loop that iterates through the instructions in the execute queue
+        if (execute[i].state == EX) { //check if the insruction is in the execute state if it is then it is time to move it to writeback state
+            execute[i].state = WB;  //These line of code helps with the transition of EX to WB by updating the state
+            execute.erase(execute.begin() + i);  // Removing the instrucion from execute queue because it has now been move to the writeback queue
+            --i;  //This line is to make sure the next instruction in the curent position is not skipped after removal of the previous instruction.
+        }
+    }   
 }
 
 void Issue() {
-    
+    for (int i = 0; i < issue.size(); ++i) { // For loop that iterates through the instructions in the issue queue
+        if (issue[i].state == IS) { //check if the insruction is in the issue state if it is then it is time to move it to execute state
+            issue[i].state = EX;  // These line of code helps with the transition of IS to EX by updating the state
+            execute.push_back(issue[i]);  // Adding the instruction to the execute queue
+            issue.erase(issue.begin() + i);  // Removing the instrucion from issue queue because it has now been moved to the excute queue
+            --i;  // This line is to make sure the next instruction in the curent position is not skipped after removal of the previous instruction.
+        }
+    }    
 }
 
 void Dispatch () {
