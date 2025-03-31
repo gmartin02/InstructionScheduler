@@ -132,6 +132,19 @@ void Dispatch () {
         }
     }
 
+    int i = 0;
+    for (instruction ins : dispatch) {
+        if (ins.state == IF) {
+            ins.state = ID;
+            i++;
+        }
+        if (i >= 30) {  // I'm not sure if we set all instructions to ID after one cycle delay or just a small number. I went with 30 at a time for now.
+            break;
+        }
+    }
+
+    
+
     // There needs to be something else in Dispatch() that renames the src1, src2, and dest operands. Its part of Tomasulo’s algorithm.
 }
 
