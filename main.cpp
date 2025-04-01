@@ -6,10 +6,12 @@
 #include <algorithm>
 using namespace std;
 
-int fetch_count = 0; // tag counter.
-const int MAX_SIZE = 1024; // Max size for queue sizes.
+const int N = 1024; // Max size for queue sizes.
+
 int cycle = 0; // Cycle that program is on
 ifstream file("val_trace_gcc.txt");
+int tag_counter = 0; // tag counter.
+
 
 enum state_list {
     IF,     //Fetch State
@@ -28,15 +30,13 @@ class instruction {
     string src1;
     string src2;
     int tag;
-    instruction (int address, int operation, string dest, string src1, string src2, int tag) {   // Added instruction constructor to make adding instructions to dispatch easier.
+    instruction (int address, int operation, string dest, string src1, string src2) {   // Added instruction constructor to make adding instructions to dispatch easier.
         this->address = address;
         this->operation = operation;
         this->dest = dest;
         this->src1 = src1;
         this->src2 = src2;
-        this->tag = fetch_count;
         this->state = IF;
-        fetch_count++; // increment tag at every instruction object creation.
     };
 };
 
@@ -62,8 +62,11 @@ vector<instruction> issue;
 vector<instruction> execute;
 vector<instruction> dispatch_latency; // The temporary queue for dispatch. It doesn't have a max size defined to it.
 vector<instruction> fakeROB;
+int RF[128];
 
 int main(int argc, const char * argv[]) {
+
+    init_RF();
     
     do {
         //FakeRetire();
@@ -85,6 +88,12 @@ int main(int argc, const char * argv[]) {
     }
     cout << dispatch.front().address << endl; // Some test code to display if each instruction was read properly.
     */
+}
+
+void init_RF() {
+    for (int i = 0; i < 128; i++) {
+        RF[i] = i;
+    }
 }
 
 void FakeRetire() {
@@ -119,22 +128,21 @@ void Issue() {
 void Dispatch () {
 
     // We check if there is space avaliable in the issue queue.
-    if (issue.size() < MAX_SIZE) {
-        for (int i = 0; i < MAX_SIZE - issue.size(); i++) {     // For the amount of avaliable spots in issue queue, we move that many from dispatch to temp queue.
-            if (dispatch.front().state == IF) {break;}
-            dispatch_latency.push_back(dispatch.front());   // We can assume the first instruction will be the first to go since we're dealing with queues here.
-            dispatch.erase(dispatch.cbegin());
+    if (issue.size() < N && dispatch.front().state == ID) {
+        for (int i = 0; i < N - issue.size(); i++) {     // For the amount of avaliable spots in issue queue, we move that many from dispatch to temp queue.
+            dispatch.front().tag = tag_counter;
+            RF[stoi(dispatch.front().dest)] = tag_counter;
+            tag_counter++;
+            fakeROB.push_back(dispatch.front());
+            issue.push_back(Rename(dispatch.front()));
+            dispatch.erase(dispatch.cbegin());  // Erase moved instructions from temp queue.
         }
 
+        /*
         std::sort(dispatch_latency.begin(), dispatch_latency.end(), [](instruction a, instruction b) {  // Sort by tag, ascending order.
             return a.tag < b.tag;
         });
-
-        for (int i = 0; i < MAX_SIZE - issue.size(); i++) {     // For amount of avaliable spaces in issue queue, move that many to issue queue.
-            dispatch_latency.front().state = IS;
-            issue.push_back(dispatch_latency.front());
-            dispatch_latency.erase(dispatch_latency.cbegin());  // Erase moved instructions from temp queue.
-        }
+        */
     }
 
     int i = 0;
@@ -143,7 +151,7 @@ void Dispatch () {
             ins.state = ID;
             i++;
         }
-        if (i >= 30) {  // I'm not sure if we set all instructions to ID after one cycle delay or just a small number. I went with 30 at a time for now.
+        if (i >= N) {  // I'm not sure if we set all instructions to ID after one cycle delay or just a small number. I went with 30 at a time for now.
             break;
         }
     }
@@ -151,6 +159,40 @@ void Dispatch () {
     
 
     // There needs to be something else in Dispatch() that renames the src1, src2, and dest operands. Its part of Tomasulo’s algorithm.
+}
+
+instruction Rename(instruction dispatched) {
+    /*for (int i = fakeROB.size() - 1; i > -1; i--) {
+        if (dispatched.dest == fakeROB[i].dest) {
+            dispatch[i].dest = fakeROB[i].tag;
+        }
+    }
+
+    if (dispatched.src1 != "-1") {
+        for (int i = fakeROB.size() - 1; i > -1; i--) {
+            if (dispatched.src1 == fakeROB[i].dest) {
+                dispatch[i].src1 = fakeROB[i].tag;
+            }
+        }
+    }
+
+    if (dispatched.src2 != "-1") {
+        for (int i = fakeROB.size() - 1; i > -1; i--) {
+            if (dispatched.src2 == fakeROB[i].dest) {
+                dispatch[i].src2 = fakeROB[i].tag;
+            }
+        }
+    }*/
+
+    dispatched.dest = RF[stoi(dispatched.dest)];
+    if (dispatched.src1 != "-1") {
+        dispatched.src1 = RF[stoi(dispatched.src1)];
+    }
+    if (dispatched.src2 != "-1") {
+        dispatched.src2 = RF[stoi(dispatched.src2)];
+    }
+
+    return dispatched;
 }
 
 void Fetch() {
@@ -165,7 +207,7 @@ void Fetch() {
     string src2;
     string line;
 
-    while (dispatch.size() < MAX_SIZE && fetch_bandwidth != 30) { // Check if the dispatch queue is full. If yes, we skip for the time-being.
+    while (dispatch.size() < 2*N) { // Check if the dispatch queue is full. If yes, we skip for the time-being.
         getline(file, line);
         if (line == "") { // The trace file has a weird empty line at the end which throws off the entire code, so I made sure to check for empty lines.
             file.close();
@@ -184,7 +226,8 @@ void Fetch() {
         ss >> dest;
         ss >> src1;
         ss >> src2;
-        dispatch.push_back(instruction(address, operation, dest, src1, src2, fetch_count)); // Add to dispatch queue.
+        dispatch.push_back(instruction(address, operation, dest, src1, src2)); // Add to dispatch queue.
+        fakeROB.push_back(instruction(address, operation, dest, src1, src2));
         cout << tag << endl;
     }
 }
@@ -200,12 +243,12 @@ bool Advance_Cycle() {
 
 //Checks if empty. Very bad optimization, needs to be adjusted
 bool isEmpty() {
-    /*for(int i = 0; i <= MAX_SIZE; i++) {
+    /*for(int i = 0; i <= N; i++) {
         if (dispatch[i].state != WB && dispatch[i].state != IF) return false;
         if (issue[i].state != WB && issue[i].state != IF) return false;
         if (execute[i].state != WB && execute[i].state != IF) return false;
     }*/
-    for(int i = 0; i <= MAX_SIZE; i++) {
+    for(int i = 0; i <= N; i++) {
         if (dispatch.size() != 0) return false;
         if (issue.size() != 0) return false;
         if (execute.size() != 0) return false;
