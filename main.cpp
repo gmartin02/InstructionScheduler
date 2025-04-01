@@ -6,11 +6,12 @@
 #include <algorithm>
 using namespace std;
 
-const int N = 1024; // Max size for queue sizes.
+const int N = 512; // Max size for queue sizes.
 
 int cycle = 0; // Cycle that program is on
 ifstream file("val_trace_gcc.txt");
 int tag_counter = 0; // tag counter.
+int RF[128];
 
 
 enum state_list {
@@ -24,12 +25,18 @@ enum state_list {
 class instruction {
     public:
     enum state_list state;
+    int tag;
     int address;
     int operation;
     string dest;
     string src1;
     string src2;
-    int tag;
+    int cycle;
+    int IF_duration;
+    int ID_duration;
+    int IS_duration;
+    int EX_duration;
+    int WB_duration;
     instruction (int address, int operation, string dest, string src1, string src2) {   // Added instruction constructor to make adding instructions to dispatch easier.
         this->address = address;
         this->operation = operation;
@@ -40,15 +47,8 @@ class instruction {
     };
 };
 
-class Queue {   // Kept queue around just in case.
-    private:
-    instruction front;
-    instruction rear;
-    instruction arr[1024];
-    public:
-    
-};
-
+void init_RF();
+instruction Rename(instruction);
 void FakeRetire();
 void Execute();
 void Issue();
@@ -62,7 +62,6 @@ vector<instruction> issue;
 vector<instruction> execute;
 vector<instruction> dispatch_latency; // The temporary queue for dispatch. It doesn't have a max size defined to it.
 vector<instruction> fakeROB;
-int RF[128];
 
 int main(int argc, const char * argv[]) {
 
@@ -76,7 +75,7 @@ int main(int argc, const char * argv[]) {
         if (file.is_open() && !file.eof()) {
             Fetch();
         }
-        cout << "hit" << endl;
+        //cout << "hit" << endl;
     } while(Advance_Cycle());
      
     return 0;
@@ -128,13 +127,19 @@ void Issue() {
 void Dispatch () {
 
     // We check if there is space avaliable in the issue queue.
-    if (issue.size() < N && dispatch.front().state == ID) {
+    if (cycle < 1) {return;}
+    if (issue.size() < N) {
         for (int i = 0; i < N - issue.size(); i++) {     // For the amount of avaliable spots in issue queue, we move that many from dispatch to temp queue.
+            cout << "Pre-renaming" << endl;
+            cout << dispatch.front().address << " " << dispatch.front().src1 << endl;
             dispatch.front().tag = tag_counter;
             RF[stoi(dispatch.front().dest)] = tag_counter;
             tag_counter++;
-            fakeROB.push_back(dispatch.front());
+            //fakeROB.push_back(dispatch.front());
             issue.push_back(Rename(dispatch.front()));
+            dispatch.front() = Rename(dispatch.front());
+            cout << "Post-renaming" << endl;
+            cout << dispatch.front().address << " " << dispatch.front().src1 << "\n" << endl;
             dispatch.erase(dispatch.cbegin());  // Erase moved instructions from temp queue.
         }
 
@@ -162,34 +167,13 @@ void Dispatch () {
 }
 
 instruction Rename(instruction dispatched) {
-    /*for (int i = fakeROB.size() - 1; i > -1; i--) {
-        if (dispatched.dest == fakeROB[i].dest) {
-            dispatch[i].dest = fakeROB[i].tag;
-        }
-    }
+    dispatched.dest = to_string(RF[stoi(dispatched.dest)]);
 
     if (dispatched.src1 != "-1") {
-        for (int i = fakeROB.size() - 1; i > -1; i--) {
-            if (dispatched.src1 == fakeROB[i].dest) {
-                dispatch[i].src1 = fakeROB[i].tag;
-            }
-        }
-    }
-
-    if (dispatched.src2 != "-1") {
-        for (int i = fakeROB.size() - 1; i > -1; i--) {
-            if (dispatched.src2 == fakeROB[i].dest) {
-                dispatch[i].src2 = fakeROB[i].tag;
-            }
-        }
-    }*/
-
-    dispatched.dest = RF[stoi(dispatched.dest)];
-    if (dispatched.src1 != "-1") {
-        dispatched.src1 = RF[stoi(dispatched.src1)];
+        dispatched.src1 = to_string(RF[stoi(dispatched.src1)]);
     }
     if (dispatched.src2 != "-1") {
-        dispatched.src2 = RF[stoi(dispatched.src2)];
+        dispatched.src2 = to_string(RF[stoi(dispatched.src2)]);
     }
 
     return dispatched;
@@ -201,7 +185,6 @@ void Fetch() {
     int address;
     int operation;
     int tag;
-    int fetch_bandwidth = 0;
     string dest;
     string src1;
     string src2;
@@ -216,7 +199,6 @@ void Fetch() {
         if (file.eof()) { // If the file has reached the end, we close it.
             file.close();
         }
-        fetch_bandwidth++;
         stringstream ss(line);
         string temp;
         ss >> temp;
@@ -227,8 +209,7 @@ void Fetch() {
         ss >> src1;
         ss >> src2;
         dispatch.push_back(instruction(address, operation, dest, src1, src2)); // Add to dispatch queue.
-        fakeROB.push_back(instruction(address, operation, dest, src1, src2));
-        cout << tag << endl;
+        //cout << tag << endl;
     }
 }
 
@@ -248,10 +229,11 @@ bool isEmpty() {
         if (issue[i].state != WB && issue[i].state != IF) return false;
         if (execute[i].state != WB && execute[i].state != IF) return false;
     }*/
-    for(int i = 0; i <= N; i++) {
-        if (dispatch.size() != 0) return false;
-        if (issue.size() != 0) return false;
-        if (execute.size() != 0) return false;
-    }
+    
+    //if (dispatch.size() != 0) return false;
+    //if (issue.size() != 0) return false;
+    if (issue.size() < N) return false;
+    //if (execute.size() != 0) return false;
+    
     return true;
 }
