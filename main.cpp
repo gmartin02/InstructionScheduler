@@ -6,7 +6,7 @@
 #include <algorithm>
 using namespace std;
 
-const int N = 1024; // Max size for queue sizes.
+const int N = 2; // Max size for queue sizes.
 
 int cycle = 0; // Cycle that program is on
 ifstream file("val_trace_gcc.txt");
@@ -77,14 +77,12 @@ int main(int argc, const char * argv[]) {
     init_RF();
     
     do {
-        /*
         cout << "----------- Iteration: " << cycle << "-----------" << endl;
         cout << "dispatch" << dispatch.size() << endl;
         cout << "issue" << issue.size() << endl;
         cout << "execute" << execute.size() << endl;
         cout << "fakeROB" << fakeROB.size() << endl;
         cout << endl;
-        */
         
         //cout << "hit before fakeretire" << endl;
         FakeRetire();
@@ -98,7 +96,7 @@ int main(int argc, const char * argv[]) {
         if (file.is_open()) {
             Fetch();
         }
-        cout << "hit before adv cycle" << endl;
+        //cout << "hit before adv cycle" << endl;
     } while(Advance_Cycle());
 
     cout << "Program End" << endl;
@@ -158,7 +156,7 @@ void Execute() {
         }
 
         (*it)->state = WB;
-        execute.erase(it);
+        it = execute.erase(it);
     }
 }
 
@@ -171,8 +169,16 @@ void Issue() {
     std::sort(issue.begin(), issue.end(), [](instruction *a, instruction *b) {  // Sort by tag, ascending order.
         return a->tag < b->tag;
     });
-
+    
     for (auto it = issue.begin(); it != issue.end();) {
+
+        /*
+        cout << "Current Instruction:" << endl;
+        cout << (*it)->address << " " << (*it)->dest_o << " " << (*it)->src1_o <<  " " << (*it)-> src2_o << " " << endl;
+        cout << RF[stoi((*it)->dest_o)][1] << " " << RF[stoi((*it)->src1_o)][1] << " " << RF[stoi((*it)->src2_o)][1] <<  " " << endl;
+        cout << endl;
+        */
+
         if ((*it)->src1_o != "-1" && RF[stoi((*it)->src1_o)][1] == 1) { // Instructions can have two source registers. If one of them is marked with -1, it's not using
                                                                         // another source register. Otherwise we check to see if the source reg is being used in the RF.
             it++;  
@@ -194,21 +200,23 @@ void Issue() {
 // We rename the instructions here.
 void Dispatch() {
     int count = 0;
-    if (dispatch.empty()) return;
+    if (!dispatch.empty() && issue.size() < N) {
 
-    for (auto it = dispatch.begin(); it != dispatch.end();) {     
-        if (count >= N) {break;}
+        for (auto it = dispatch.begin(); it != dispatch.end();) {     
+            //cout << "count: " << count << endl;
+            if (issue.size() >= N) {break;}
 
-        if ((*it)->dest_o != "-1") {
-            RF[stoi((*it)->dest_o)][1] = 1; // 1 means not ready; register is being used.
+            if ((*it)->dest_o != "-1") {
+                RF[stoi((*it)->dest_o)][1] = 1; // 1 means not ready; register is being used.
+            }
+
+            RenameOps((*it));
+            (*it)->state = IS;
+
+            issue.push_back(*it);
+            it = dispatch.erase(it);  
+            count++;
         }
-
-        RenameOps((*it));
-        (*it)->state = IS;
-
-        issue.push_back(*it);
-        it = dispatch.erase(it);  
-        count++;
     }
 
     int i = 0;
@@ -219,6 +227,7 @@ void Dispatch() {
         (ins)->state = ID;
         i++;
     }
+    //cout << "hit" << endl;
 }
 
 // Again, if any one of the instruction's register is marked as -1, it doesn't have that register. 
