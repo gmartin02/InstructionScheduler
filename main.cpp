@@ -6,7 +6,8 @@
 #include <algorithm>
 using namespace std;
 
-const int N = 512; // Max size for queue sizes.
+const int N = 8; // Max size for queue sizes.
+const int S = 2; // Scheduling queue size.
 
 int cycle = 0; // Cycle that program is on
 ifstream file("val_trace_gcc.txt");
@@ -25,7 +26,6 @@ enum state_list {
 class instruction {
     public:
     enum state_list state;
-    int special_flag = 0;
     int tag;
     int address;
     int operation;
@@ -35,12 +35,16 @@ class instruction {
     string dest_o; // The difference bewteen <reg>_o and <reg> is that <reg>_o is the original unmodified register and the other one gets overwritten with a tag later on.
     string src1_o;
     string src2_o;
-    int cycle;
-    int IF_duration; // unused atm.
-    int ID_duration; // unused atm.
-    int IS_duration; // unused atm.
-    int EX_duration; // unused atm.
-    int WB_duration; // unused atm.
+    int IF_duration = 0; 
+    int ID_duration = 0; 
+    int IS_duration = 0; 
+    int EX_duration = 0; 
+    int WB_duration = 0; 
+    int IF_cycle = 0;
+    int ID_cycle = 0; 
+    int IS_cycle = 0; 
+    int EX_cycle = 0; 
+    int WB_cycle = 0; 
     int exec_latency = 0;
     instruction (int address, int operation, string dest, string src1, string src2) {   // Added instruction constructor to make adding instructions to dispatch easier.
         this->address = address;
@@ -56,6 +60,9 @@ class instruction {
 
         this->state = IF;
         this->tag = tag_counter;
+        this->IF_cycle = cycle;
+
+        this->IF_duration = 1;
     };
 };
 void RenameOps(instruction *);
@@ -73,35 +80,18 @@ vector<instruction*> dispatch;
 vector<instruction*> issue;
 vector<instruction*> execute;
 vector<instruction*> fakeROB;
-//instruction* RF_pointer[128];
 
 int main(int argc, const char * argv[]) {
-
     init_RF();
     
     do {
-        /* Debug code
-        cout << "----------- Iteration: " << cycle << "-----------" << endl;
-        cout << "dispatch" << dispatch.size() << endl;
-        cout << "issue" << issue.size() << endl;
-        cout << "execute" << execute.size() << endl;
-        cout << "fakeROB" << fakeROB.size() << endl;
-        cout << endl;
-        */
-        
-        //cout << "hit before fakeretire" << endl;
         FakeRetire();
-        //cout << "hit before execute" << endl;
         Execute();
-        //cout << "hit before issue" << endl;
         Issue();
-        //cout << "hit before dispatch" << endl;
         Dispatch();
-        //cout << "hit before fetch" << endl;
         if (file.is_open()) {
             Fetch();
         }
-        //cout << "hit before adv cycle" << endl;
     } while(Advance_Cycle());
 
     cout << "Program End" << endl;
@@ -121,15 +111,21 @@ void init_RF() {
 // Check fakeROB for any instructions in the WB state and remove them.
 void FakeRetire() {
     if (fakeROB.empty()) return;
+
     for (auto it = fakeROB.begin(); it != fakeROB.end();) {
-        if((*it)->state == WB) {
-            instruction *temp = *it;
-            it = fakeROB.erase(it);
-            delete (temp);
-        }
-        else {
-            it++;
-        }
+        if ((*it)->state != WB) return;
+        (*it)->WB_duration = cycle - ((*it)->WB_cycle);
+
+        cout << (*it)->tag << " fu{" << (*it)->operation << "} src{" << (*it)->src1_o << ","  << (*it)->src2_o << "} dest{" << (*it)->dest_o 
+        << "} IF{"  << (*it)->IF_cycle << "," << (*it)->IF_duration 
+        << "} ID{"  << (*it)->ID_cycle << "," << (*it)->ID_duration 
+        << "} IS{" << (*it)->IS_cycle  << "," << (*it)->IS_duration 
+        << "} EX{" << (*it)->EX_cycle << "," << (*it)->EX_duration 
+        << "} WB{" << (*it)->WB_cycle << "," << (*it)->WB_duration << "}" << endl;
+
+        delete (*it);
+        it = fakeROB.erase(it);
+        
     }
 }
 
@@ -138,19 +134,19 @@ void FakeRetire() {
 void Execute() {
     if (execute.empty()) return;
     for (auto it = execute.begin(); it != execute.end();) {
-        if ((*it)->operation == 0 && (*it)->exec_latency != 1) {
+        if ((*it)->operation == 0 && (*it)->exec_latency < 0) {
             (*it)->exec_latency++; 
             it++;
             continue;
         }
 
-        if ((*it)->operation == 1 && (*it)->exec_latency != 2) {
+        if ((*it)->operation == 1 && (*it)->exec_latency < 1) {
             (*it)->exec_latency++; 
             it++;
             continue;
         }
 
-        if ((*it)->operation == 2 && (*it)->exec_latency != 5) {
+        if ((*it)->operation == 2 && (*it)->exec_latency < 4) {
             (*it)->exec_latency++; 
             it++; 
             continue;
@@ -163,91 +159,98 @@ void Execute() {
         }
 
         (*it)->state = WB;
+        (*it)->WB_cycle = cycle;
+
+        (*it)->EX_duration = cycle - (*it)->EX_cycle;
         it = execute.erase(it);
     }
 }
 
 // Send to functional units (AKA the execute queue) if required registers are avaliable. Also check to see if the required sources registers are being used.
+// Issue sends out N+1 instructions to execute.
 void Issue() {
-    if (issue.empty()) return;
-
+    int count = 0;
+    
     std::sort(issue.begin(), issue.end(), [](instruction *a, instruction *b) {  // Sort by tag, ascending order.
         return a->tag < b->tag;
     });
-    
-    for (auto it = issue.begin(); it != issue.end();) {
-        // If we find that any of the instruction's operands (dest, src1, src2) are being used, with delay issuing that instruction.
-        // Also, again, the usage of stoi() and <reg>_o is to just get an index for the register file. 
-        if ((*it)->dest_o != "-1" && RF[stoi((*it)->dest_o)][1] == 1) {
-            it++;
-            continue;
+    if (!issue.empty() && execute.size() <= N) {
+        for (auto it = issue.begin(); it != issue.end();) {
+            if (count >= N || execute.size() > N) break;
+            
+            // Instructions can have two source registers. If one of them is marked with -1, it's not using
+            // another source register. Otherwise we check to see if the source reg is being used in the RF.
+            if ((*it)->src1_o != "-1" && RF[stoi((*it)->src1_o)][1] == 1) { 
+                it++;  
+                continue;
+            }
+            
+            if ((*it)->src2_o != "-1" && RF[stoi((*it)->src2_o)][1] == 1) {
+                it++;
+                continue;
+            }
+            
+            if ((*it)->dest_o != "-1") {
+                RF[stoi((*it)->dest_o)][1] = 1; // 1 means not ready; register is being used.
+            }
+            
+            (*it)->state = EX;
+            (*it)->EX_cycle = cycle;
+            (*it)->IS_duration = cycle - (*it)->IS_cycle;
+
+            execute.push_back(*it);
+            it = issue.erase(it);
+            count++;
         }
-
-        if ((*it)->src1_o != "-1" && RF[stoi((*it)->src1_o)][1] == 1) { // Instructions can have two source registers. If one of them is marked with -1, it's not using
-                                                                        // another source register. Otherwise we check to see if the source reg is being used in the RF.
-            it++;  
-            continue;
-        }
-
-        if ((*it)->src2_o != "-1" && RF[stoi((*it)->src2_o)][1] == 1) {
-            it++;
-            continue;
-        }
-
-        if ((*it)->dest_o != "-1") {
-            RF[stoi((*it)->dest_o)][1] = 1; // 1 means not ready; register is being used. // went up ^ there where special flag line is.
-        }
-
-        (*it)->state = EX;
-
-        execute.push_back(*it);
-        it = issue.erase(it);
     }
 }
 
-// We rename the instructions here, and push to the  queue. 
+// We rename the instructions here, and push to the queue. Note, issue can only contain S instructions.
 void Dispatch() {
     int count = 0;
-    if (!dispatch.empty() && issue.size() < N) {
+    if (!dispatch.empty() && issue.size() < S && dispatch.front()->state != IF) {
+    //if (!dispatch.empty() && dispatch.front()->state != IF) {
         for (auto it = dispatch.begin(); it != dispatch.end();) {     
-            //Since the issue queue essentially contains only N instructions, we push only that amount.
-            if (issue.size() >= N) {break;}
+            if (issue.size() >= S || count >= N || (*it)->state == IF) {break;}
+
             RenameOps((*it));
             (*it)->state = IS;
-            
+            (*it)->IS_cycle = cycle;
             issue.push_back(*it);
+
+            (*it)->ID_duration = cycle - (*it)->ID_cycle;
             it = dispatch.erase(it);  
             count++;
         }
     }
-
-    // We only set N instructions at a time (dispatch has a size of 2N) to the ID state. This simulates the 1 cycle latency between IF -> ID.
     int i = 0;
     for (instruction *ins : dispatch) {
-        if (i >= N) {  
-            break;
+        if (i >= N) break;
+        if (ins->state != ID) {
+            ins->state = ID;
+            i++;
         }
-        (ins)->state = ID;
-        i++;
     }
+    // We only set N instructions at a time (dispatch has a size of 2N) to the ID state. This simulates the 1 cycle latency between IF -> ID.
 }
 
 // Where the actual renaming takes place.
 // If any one of the instruction's register is marked as -1, it doesn't have that register, and so there's nothing to rename.
 void RenameOps(instruction *dispatched) {
-    if (dispatched->dest != "-1") {
+    
+    if (dispatched->dest_o != "-1") {
+        RF[stoi(dispatched->dest)][0] = dispatched->tag;    // Here we assign a tag to the register in the RF.
         dispatched->dest = to_string(RF[stoi(dispatched->dest_o)][0]);
     }
-    if (dispatched->src1 != "-1") {
+    if (dispatched->src1_o != "-1") {
         dispatched->src1 = to_string(RF[stoi(dispatched->src1_o)][0]);
     }
-    if (dispatched->src2 != "-1") {
+    if (dispatched->src2_o != "-1") {
         dispatched->src2 = to_string(RF[stoi(dispatched->src2_o)][0]);
     }
 }
 
-
-// Get instructions.
+// Get instructions. We fetch N instructions at a time.
 void Fetch() {
     // For reference:
     // <PC> <operation type> <dest reg #> <src1 reg #> <src2 reg #>
@@ -258,8 +261,10 @@ void Fetch() {
     string src1;
     string src2;
     string line;
+    int count = 0;
 
-    while (dispatch.size() < 2*N) { // Check if the dispatch queue is full. If yes, we skip fetching for the time-being.
+    //while (dispatch.size() < 2*N) { // Check if the dispatch queue is full. If yes, we skip fetching for the time-being.
+    while (count < N && dispatch.size() < 2*N) {
         getline(file, line);
         if (line == "") { // The trace file has a weird empty line at the end which throws off the entire code, so I made sure to check for empty lines.
             file.close();
@@ -280,10 +285,9 @@ void Fetch() {
         instruction *ins = new instruction(address, operation, dest, src1, src2);
         dispatch.push_back(ins);    // Add to dispatch queue.
         fakeROB.push_back(ins);     // Add to fakeROB
-        if (dest != "-1") {
-            RF[stoi(dest)][0] = tag_counter;    // Here we assign a tag to the register in the RF.
-        }
+        ins->ID_cycle = cycle + 1;
         tag_counter++;
+        count++;
     }
 }
 
