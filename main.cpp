@@ -4,6 +4,7 @@
 #include <sstream>
 #include <vector>
 #include <algorithm>
+#include <iomanip>
 using namespace std;
 
 const int N = 8; // Max size for queue sizes.
@@ -46,6 +47,9 @@ class instruction {
     int EX_cycle = 0; 
     int WB_cycle = 0; 
     int exec_latency = 0;
+
+    int special_flag = 0;
+
     instruction (int address, int operation, string dest, string src1, string src2) {   // Added instruction constructor to make adding instructions to dispatch easier.
         this->address = address;
         this->operation = operation;
@@ -93,9 +97,9 @@ int main(int argc, const char * argv[]) {
             Fetch();
         }
     } while(Advance_Cycle());
-
-    cout << "Program End" << endl;
-    cout << cycle << endl;
+    cout << "number of instructions = " << tag_counter << endl;
+    cout << "number of cycles       = " << cycle << endl;
+    cout << std::fixed << std::setprecision(5) << "IPC                    = " << float(tag_counter) / float(cycle) << endl;
      
     return 0;
 }
@@ -134,19 +138,19 @@ void FakeRetire() {
 void Execute() {
     if (execute.empty()) return;
     for (auto it = execute.begin(); it != execute.end();) {
-        if ((*it)->operation == 0 && (*it)->exec_latency < 0) {
+        if ((*it)->operation == 0 && (*it)->exec_latency < 1) {
             (*it)->exec_latency++; 
             it++;
             continue;
         }
 
-        if ((*it)->operation == 1 && (*it)->exec_latency < 1) {
+        if ((*it)->operation == 1 && (*it)->exec_latency < 2) {
             (*it)->exec_latency++; 
             it++;
             continue;
         }
 
-        if ((*it)->operation == 2 && (*it)->exec_latency < 4) {
+        if ((*it)->operation == 2 && (*it)->exec_latency < 5) {
             (*it)->exec_latency++; 
             it++; 
             continue;
@@ -166,6 +170,7 @@ void Execute() {
     }
 }
 
+/*
 // Send to functional units (AKA the execute queue) if required registers are avaliable. Also check to see if the required sources registers are being used.
 // Issue sends out N+1 instructions to execute.
 void Issue() {
@@ -204,12 +209,48 @@ void Issue() {
         }
     }
 }
+*/
 
+// Issue, but flagging doesn't take place here. But we do check for special flags.
+void Issue() {
+    int count = 0;
+    std::sort(issue.begin(), issue.end(), [](instruction *a, instruction *b) {  // Sort by tag, ascending order.
+        return a->tag < b->tag;
+    });
+    if (!issue.empty() && execute.size() <= N) {
+        for (auto it = issue.begin(); it != issue.end();) {
+            if (count >= N || execute.size() > N) break;
+            //if ((*it)->dest_o != "-1" && RF[stoi((*it)->dest_o)][1] == 1) {
+                //it++;
+                //continue;
+            //}
+            
+            if ((*it)->src1_o != "-1" && RF[stoi((*it)->src1_o)][1] == 1 && (*it)->special_flag != 1) { 
+                it++;  
+                continue;
+            }
+            
+            if ((*it)->src2_o != "-1" && RF[stoi((*it)->src2_o)][1] == 1 && (*it)->special_flag != 1) {
+                it++;
+                continue;
+            }
+            
+            (*it)->state = EX;
+            (*it)->EX_cycle = cycle + 1;
+            (*it)->IS_duration = cycle - (*it)->IS_cycle + 1;
+
+            execute.push_back(*it);
+            it = issue.erase(it);
+            count++;
+        }
+    }
+}
+
+/*
 // We rename the instructions here, and push to the queue. Note, issue can only contain S instructions.
 void Dispatch() {
     int count = 0;
     if (!dispatch.empty() && issue.size() < S && dispatch.front()->state != IF) {
-    //if (!dispatch.empty() && dispatch.front()->state != IF) {
         for (auto it = dispatch.begin(); it != dispatch.end();) {     
             if (issue.size() >= S || count >= N || (*it)->state == IF) {break;}
 
@@ -233,6 +274,50 @@ void Dispatch() {
     }
     // We only set N instructions at a time (dispatch has a size of 2N) to the ID state. This simulates the 1 cycle latency between IF -> ID.
 }
+*/
+
+// Dispatch, but flagging takes place here in this version.
+void Dispatch() {
+    int count = 0;
+    if (!dispatch.empty() && issue.size() < S && dispatch.front()->state != IF) {
+        for (auto it = dispatch.begin(); it != dispatch.end();) {     
+            //Since the issue queue essentially contains only N instructions, we push only that amount.
+            if (issue.size() >= S || count >= N || (*it)->state == IF) {break;}
+            
+            if ((*it)->dest_o != "-1") {
+                if (RF[stoi((*it)->dest_o)][1] == 0) {
+                    if ((*it)->dest_o == (*it)->src1_o) {
+                        
+                        (*it)->special_flag = 1;
+                    }
+                    if ((*it)->dest_o == (*it)->src2_o) {
+                        
+                        (*it)->special_flag = 1;
+                    }
+                }
+                RF[stoi((*it)->dest_o)][1] = 1; // 1 means not ready; register is being used. // went up ^ there where special flag line is.
+            }
+
+            RenameOps((*it));
+            (*it)->state = IS;
+            (*it)->IS_cycle = cycle + 1;
+            issue.push_back(*it);
+
+            (*it)->ID_duration = cycle - (*it)->ID_cycle + 1;
+            it = dispatch.erase(it);  
+            count++;
+        }
+    }
+    int i = 0;
+    for (instruction *ins : dispatch) {
+        if (i >= N) break;
+        if (ins->state != ID) {
+            ins->state = ID;
+            i++;
+        }
+    }
+}
+
 
 // Where the actual renaming takes place.
 // If any one of the instruction's register is marked as -1, it doesn't have that register, and so there's nothing to rename.
