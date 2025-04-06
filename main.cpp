@@ -112,21 +112,21 @@ int main(int argc, const char * argv[]) {
     init_RF();
     
     do {
-        cout << "FR" << endl;
+        //cout << "FR" << endl;
         FakeRetire();
-        cout << "EX" << endl;
+        //cout << "EX" << endl;
         Execute();
-        cout << "IS" << endl;
+        //cout << "IS" << endl;
         Issue();
-        cout << "ID" << endl;
+        //cout << "ID" << endl;
         Dispatch();
-        cout << "IF->ID" << endl;
+        //cout << "IF->ID" << endl;
         FetchtoDispatch();
         if (file.is_open()) {
-            cout << "IF" << endl;
+            //cout << "IF" << endl;
             Fetch();
         }
-        cout << "adv cyc" << endl;
+        //cout << "adv cyc" << endl;
     } while(Advance_Cycle());
     //cout << "dispatch size: " << dispatch.size() << " issue size: " << issue.size() << " execute size " << execute.size() << endl;
     cout << "number of instructions = " << tag_counter << endl;
@@ -246,6 +246,7 @@ void Dispatch() {
             //if ((*it)->tag == 1136)  cout << "new issue size " << issue.size() << endl;
             //if ((*it)->tag == 1136) cout << " exec size " << execute.size() << endl;
             
+            /*
             for (auto r_it = fakeROB.rbegin(); r_it != fakeROB.rend(); r_it++) {
                 if ((*r_it)->dest_o == (*it)->src1_o && (*r_it)->state != WB && (*r_it)->dest_o != "-1" && (*r_it)->tag < (*it)->tag) {
                     (*it)->depend_1 = (*r_it);
@@ -260,6 +261,7 @@ void Dispatch() {
                     break;
                 }
             }
+            */
 
             RenameOps(*it);
                 
@@ -343,7 +345,7 @@ void Fetch() {
 
         instruction *ins = new instruction(address, operation, dest, src1, src2);
 
-        /*
+        
         for (auto it = fakeROB.rbegin(); it != fakeROB.rend(); it++) {
             if ((*it)->dest_o == src1 && (*it)->state != WB && (*it)->dest_o != "-1" && (*it)->tag < tag_counter) {
                 ins->depend_1 = (*it);
@@ -358,7 +360,7 @@ void Fetch() {
                 break;
             }
         }
-        */
+        
             
         ins->IF_cycle = cycle;
         fetch.push_back(ins);    // Add to dispatch queue.
