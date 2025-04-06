@@ -9,7 +9,7 @@
 using namespace std;
 
 const int N = 8; // Max size for queue sizes.
-const int S = 8; // Scheduling queue size.
+const int S = 2; // Scheduling queue size.
 
 int cycle = 0; // Cycle that program is on
 ifstream file("val_trace_gcc.txt");
@@ -87,6 +87,7 @@ class instruction {
         }
     };
 };
+void FetchtoDispatch();
 void ClearROB();
 void RenameOps(instruction *);
 void init_RF();
@@ -100,32 +101,32 @@ bool isEmpty();
 
 // Pointers are useful for a project like this since it allows us to access the data easily anywhere, anytime, between any data structure.
 //vector<instruction*> fetch;
+vector<instruction*> fetch(0);
 vector<instruction*> dispatch(0);
 vector<instruction*> issue(0);
 vector<instruction*> execute(0);
 vector<instruction*> fakeROB(0);
 vector<instruction*> disposal(0);
-std::deque<instruction*> dispatch_next;
-std::deque<instruction*> issue_next;
-std::deque<instruction*> exe_next;
-std::deque<instruction*> WB_next;
 
 int main(int argc, const char * argv[]) {
     init_RF();
     
     do {
-        //cout << "FR" << endl;
+        cout << "FR" << endl;
         FakeRetire();
-        //cout << "EX" << endl;
+        cout << "EX" << endl;
         Execute();
-        //cout << "IS" << endl;
+        cout << "IS" << endl;
         Issue();
-        //cout << "ID" << endl;
+        cout << "ID" << endl;
         Dispatch();
+        cout << "IF->ID" << endl;
+        FetchtoDispatch();
         if (file.is_open()) {
-            //cout << "IF" << endl;
+            cout << "IF" << endl;
             Fetch();
         }
+        cout << "adv cyc" << endl;
     } while(Advance_Cycle());
     //cout << "dispatch size: " << dispatch.size() << " issue size: " << issue.size() << " execute size " << execute.size() << endl;
     cout << "number of instructions = " << tag_counter << endl;
@@ -136,8 +137,6 @@ int main(int argc, const char * argv[]) {
      
     return 0;
 }
-
-// Initialize Register File (RF). It basically keeps track of each registers usage with a flag, 1 = being used, 0 = ready to go.
 
 void init_RF() {
     for (int i = 0; i < 128; i++) {
@@ -165,16 +164,10 @@ void FakeRetire() {
         << "} EX{" << (*it)->EX_cycle << "," << (*it)->WB_cycle - (*it)->EX_cycle
         << "} WB{" << (*it)->WB_cycle << "," << 1 << "}" << endl;
         
-
-        
-        //cycle - ((*it)->WB_cycle)
-
-        //delete (*it);
         disposal.push_back((*it));
         it = fakeROB.erase(it);
         
     }
-    //cout << "faker" << endl;
 }
 
 
@@ -182,7 +175,6 @@ void FakeRetire() {
 // Once the instruction passes through its required cycles, we remove it from the execute queue.
 void Execute() {
     if (execute.empty()) return;
-
 
     for (auto it = execute.begin(); it != execute.end();) {
         if ((*it)->exec_latency <= 0) {
@@ -198,36 +190,25 @@ void Execute() {
     }
 }
 
-
-// Issue, but flagging doesn't take place here. But we do check for special flags.
-
 void Issue() {
     vector<instruction*> temp(0);
     
-    if (issue.empty()) return;
-    //cout << "execute size " << execute.size() << endl;
-    
-
-   if (execute.size() < N + 1 ) {
-       for (auto it = issue.begin(); it != issue.end();) {
-           
-           if ((*it)->depend_1 != NULL && (*it)->src1_flag == 0) {
-               if ((*it)->depend_1->state == WB ) {
+    if (execute.size() < N + 1 ) {
+        for (auto it = issue.begin(); it != issue.end();) {
+            if ((*it)->depend_1 != NULL && (*it)->src1_flag == 0) {
+               //if ((*it)->depend_1->state == WB ) {
+                if ((*it)->depend_1->state == WB) {
                    (*it)->src1_flag = 1;
-                }
-                else {
-                    (*it)->src1_flag = 0;
                 }
             }   
             
             if ((*it)->depend_2 != NULL && (*it)->src2_flag == 0) {
-                if ((*it)->depend_2->state == WB) {
+                //if ((*it)->depend_2->state == WB) {
+                    if ((*it)->depend_2->state == WB) {
                     (*it)->src2_flag = 1;
                 }
-                else {
-                    (*it)->src2_flag = 0;
-                }
             }
+
             if ((*it)->src1_flag && (*it)->src2_flag && execute.size() + temp.size() < N + 1) {
                 temp.push_back(*it);
                 it = issue.erase(it);
@@ -235,7 +216,6 @@ void Issue() {
             else {
                 it++;
             }
-
         }
         std::sort(temp.begin(), temp.end(), [](instruction *a, instruction *b) {  // Sort by tag, ascending order.
             return a->tag < b->tag;
@@ -246,51 +226,48 @@ void Issue() {
             (*it)->exec_latency--;
 
             execute.push_back(*it);
-
         }
         temp.clear();
     }
-    
 }
-
-
 
 // Dispatch, but flagging takes place here in this version.
 void Dispatch() {
     vector<instruction*> temp(0);
-    if (issue.size() < S && !dispatch.empty() && dispatch.front()->state != IF) {
+    if (dispatch.empty()) return;
+
+    if (issue.size() < S) {
         for (auto it = dispatch.begin(); it != dispatch.end();) {     
             //Since the issue queue essentially contains only N instructions, we push only that amount.
-            if ((*it)->state == IF) break;
+            if (issue.size() + temp.size() >= S) break;
             
             //if ((*it)->tag == 1136) cout << "cycle " << cycle << endl;
             //if ((*it)->tag == 1136) cout << "pushed: " << (*it)->tag << endl;
             //if ((*it)->tag == 1136)  cout << "new issue size " << issue.size() << endl;
             //if ((*it)->tag == 1136) cout << " exec size " << execute.size() << endl;
+            
+            for (auto r_it = fakeROB.rbegin(); r_it != fakeROB.rend(); r_it++) {
+                if ((*r_it)->dest_o == (*it)->src1_o && (*r_it)->state != WB && (*r_it)->dest_o != "-1" && (*r_it)->tag < (*it)->tag) {
+                    (*it)->depend_1 = (*r_it);
+                    (*it)->src1_flag = 0;
+                    break;
+                }
+            }
+            for (auto r_it = fakeROB.rbegin(); r_it != fakeROB.rend(); r_it++) {
+                if ((*r_it)->dest_o == (*it)->src2_o && (*r_it)->state != WB && (*r_it)->dest_o != "-1" && (*r_it)->tag < (*it)->tag) {
+                    (*it)->depend_2 = (*r_it);
+                    (*it)->src2_flag = 0;
+                    break;
+                }
+            }
 
-            RenameOps((*it));
-            if (issue.size() + temp.size() < S) {
-                temp.push_back(*it);
-                it = dispatch.erase(it);  
-            }
-            else {
-                it++;
-            }
+            RenameOps(*it);
+                
+            temp.push_back(*it);
+            it = dispatch.erase(it);  
+            
         }
     }
-    int i = 0;
-    for (instruction *ins : dispatch) {
-        if (i >= N) break;
-        if (ins->state == IF) {
-            ins->state = ID;
-            ins->ID_cycle = cycle;
-            i++;
-        }
-    }
-    std::sort(temp.begin(), temp.end(), [](instruction *a, instruction *b) {  // Sort by tag, ascending order.
-        return a->tag < b->tag;
-    });
-    //cout << "hit2" << endl;
     for (auto it = temp.begin(); it != temp.end(); it++) {
         (*it)->state = IS;
         (*it)->IS_cycle = cycle;
@@ -299,13 +276,11 @@ void Dispatch() {
 
     }
     temp.clear();
-    //cout << "dispatch" << endl;
 }
 
 // Where the actual renaming takes place.
 // If any one of the instruction's register is marked as -1, it doesn't have that register, and so there's nothing to rename.
 void RenameOps(instruction *dispatched) {
-    
     if (dispatched->dest_o != "-1") {
         RF[stoi(dispatched->dest_o)][0] = dispatched->tag;    // Here we assign a tag to the register in the RF.
         dispatched->dest = to_string(RF[stoi(dispatched->dest_o)][0]);
@@ -315,6 +290,21 @@ void RenameOps(instruction *dispatched) {
     }
     if (dispatched->src2_o != "-1") {
         dispatched->src2 = to_string(RF[stoi(dispatched->src2_o)][0]);
+    }
+}
+
+void FetchtoDispatch() {
+    int i = 0;
+    if (fetch.empty()) return;
+    for (auto it = fetch.begin(); it != fetch.end();) {
+        if (dispatch.size() >= N) break;
+        
+        (*it)->state = ID;
+        (*it)->ID_cycle = cycle;
+        dispatch.push_back(*it); 
+        it = fetch.erase(it); 
+        i++;
+        
     }
 }
 
@@ -332,7 +322,7 @@ void Fetch() {
     int count = 0;
 
     //while (dispatch.size() < 2*N) { // Check if the dispatch queue is full. If yes, we skip fetching for the time-being.
-    while (count < N && dispatch.size() < 2*N && fakeROB.size() < 1024) {
+    while (fetch.size() < N && fakeROB.size() < 1024) {
         getline(file, line);
         if (line == "") { // The trace file has a weird empty line at the end which throws off the entire code, so I made sure to check for empty lines.
             file.close();
@@ -353,7 +343,7 @@ void Fetch() {
 
         instruction *ins = new instruction(address, operation, dest, src1, src2);
 
-        
+        /*
         for (auto it = fakeROB.rbegin(); it != fakeROB.rend(); it++) {
             if ((*it)->dest_o == src1 && (*it)->state != WB && (*it)->dest_o != "-1" && (*it)->tag < tag_counter) {
                 ins->depend_1 = (*it);
@@ -368,11 +358,11 @@ void Fetch() {
                 break;
             }
         }
-        
-
-        dispatch.push_back(ins);    // Add to dispatch queue.
-        fakeROB.push_back(ins);     // Add to fakeROB
+        */
+            
         ins->IF_cycle = cycle;
+        fetch.push_back(ins);    // Add to dispatch queue.
+        fakeROB.push_back(ins);     // Add to fakeROB
         tag_counter++;
         count++;
     }
@@ -390,11 +380,12 @@ bool Advance_Cycle() {
 //Checks if fakeROB empty. This means there are no longer any instructons left in the pipeline!
 bool isEmpty() {
     //if (cycle == 41) return true;
-    if (file.is_open()) return false;
     if (fakeROB.size() != 0) return false;
     if (execute.size() != 0) return false;
     if (issue.size() != 0) return false;
     if (dispatch.size() != 0) return false;
+    if (fetch.size() != 0) return false;
+    if (file.is_open()) return false;
     
     return true;
 }
