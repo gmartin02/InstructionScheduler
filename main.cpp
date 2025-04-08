@@ -121,7 +121,7 @@ int main(int argc, const char * argv[]) {
         //cout << "ID" << endl;
         Dispatch();
         //cout << "IF->ID" << endl;
-        FetchtoDispatch();
+        //FetchtoDispatch();
         if (file.is_open()) {
             //cout << "IF" << endl;
             Fetch();
@@ -191,93 +191,66 @@ void Execute() {
 }
 
 void Issue() {
-    vector<instruction*> temp(0);
-    
-    if (execute.size() < N + 1 ) {
-        for (auto it = issue.begin(); it != issue.end();) {
-            if ((*it)->depend_1 != NULL && (*it)->src1_flag == 0) {
-               //if ((*it)->depend_1->state == WB ) {
-                if ((*it)->depend_1->state == WB) {
-                   (*it)->src1_flag = 1;
-                }
-            }   
-            
-            if ((*it)->depend_2 != NULL && (*it)->src2_flag == 0) {
-                //if ((*it)->depend_2->state == WB) {
-                    if ((*it)->depend_2->state == WB) {
-                    (*it)->src2_flag = 1;
-                }
+    std::sort(issue.begin(), issue.end(), [](instruction *a, instruction *b) {  // Sort by tag, ascending order.
+        return a->tag < b->tag;
+    });
+    for (auto it = issue.begin(); it != issue.end();) {
+        if (issue.size() > N) break;
+        if ((*it)->depend_1 != NULL && (*it)->src1_flag == 0) {
+            //if ((*it)->depend_1->state == WB ) {
+            if ((*it)->depend_1->state == WB) {
+                (*it)->src1_flag = 1;
             }
-
-            if ((*it)->src1_flag && (*it)->src2_flag && execute.size() + temp.size() < N + 1) {
-                temp.push_back(*it);
-                it = issue.erase(it);
-            }
-            else {
-                it++;
+        }   
+        
+        if ((*it)->depend_2 != NULL && (*it)->src2_flag == 0) {
+            //if ((*it)->depend_2->state == WB) {
+                if ((*it)->depend_2->state == WB) {
+                (*it)->src2_flag = 1;
             }
         }
-        std::sort(temp.begin(), temp.end(), [](instruction *a, instruction *b) {  // Sort by tag, ascending order.
-            return a->tag < b->tag;
-        });
-        for (auto it = temp.begin(); it != temp.end(); it++) {
+
+        if ((*it)->src1_flag && (*it)->src2_flag) {
             (*it)->state = EX;
             (*it)->EX_cycle = cycle;
             (*it)->exec_latency--;
 
             execute.push_back(*it);
+            it = issue.erase(it);
         }
-        temp.clear();
+        else {
+            it++;
+        }
     }
 }
 
 // Dispatch, but flagging takes place here in this version.
 void Dispatch() {
-    vector<instruction*> temp(0);
-    if (dispatch.empty()) return;
 
-    if (issue.size() < S) {
+    if (issue.size() < S && !dispatch.empty()) {
         for (auto it = dispatch.begin(); it != dispatch.end();) {     
             //Since the issue queue essentially contains only N instructions, we push only that amount.
-            if (issue.size() + temp.size() >= S) break;
             
-            //if ((*it)->tag == 1136) cout << "cycle " << cycle << endl;
-            //if ((*it)->tag == 1136) cout << "pushed: " << (*it)->tag << endl;
-            //if ((*it)->tag == 1136)  cout << "new issue size " << issue.size() << endl;
-            //if ((*it)->tag == 1136) cout << " exec size " << execute.size() << endl;
-            
-            /*
-            for (auto r_it = fakeROB.rbegin(); r_it != fakeROB.rend(); r_it++) {
-                if ((*r_it)->dest_o == (*it)->src1_o && (*r_it)->state != WB && (*r_it)->dest_o != "-1" && (*r_it)->tag < (*it)->tag) {
-                    (*it)->depend_1 = (*r_it);
-                    (*it)->src1_flag = 0;
-                    break;
-                }
-            }
-            for (auto r_it = fakeROB.rbegin(); r_it != fakeROB.rend(); r_it++) {
-                if ((*r_it)->dest_o == (*it)->src2_o && (*r_it)->state != WB && (*r_it)->dest_o != "-1" && (*r_it)->tag < (*it)->tag) {
-                    (*it)->depend_2 = (*r_it);
-                    (*it)->src2_flag = 0;
-                    break;
-                }
-            }
-            */
-
+            if (issue.size() >= S || (*it)->state == IF) break;
             RenameOps(*it);
-                
-            temp.push_back(*it);
+            
+            (*it)->state = IS;
+            (*it)->IS_cycle = cycle;
+            
+            issue.push_back(*it);
             it = dispatch.erase(it);  
             
         }
     }
-    for (auto it = temp.begin(); it != temp.end(); it++) {
-        (*it)->state = IS;
-        (*it)->IS_cycle = cycle;
-
-        issue.push_back(*it);
-
+    int i = 0;
+    for (instruction *ins : dispatch) {
+        if (i >= N) break;
+        if (ins->state == IF) {
+            ins->state = ID;
+            ins->ID_cycle = cycle;
+            i++;
+        }
     }
-    temp.clear();
 }
 
 // Where the actual renaming takes place.
@@ -324,7 +297,7 @@ void Fetch() {
     int count = 0;
 
     //while (dispatch.size() < 2*N) { // Check if the dispatch queue is full. If yes, we skip fetching for the time-being.
-    while (fetch.size() < N && fakeROB.size() < 1024) {
+    while (dispatch.size() < 2*N && count < N && fakeROB.size() < 1024) {
         getline(file, line);
         if (line == "") { // The trace file has a weird empty line at the end which throws off the entire code, so I made sure to check for empty lines.
             file.close();
@@ -363,7 +336,7 @@ void Fetch() {
         
             
         ins->IF_cycle = cycle;
-        fetch.push_back(ins);    // Add to dispatch queue.
+        dispatch.push_back(ins);    // Add to dispatch queue.
         fakeROB.push_back(ins);     // Add to fakeROB
         tag_counter++;
         count++;
