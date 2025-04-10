@@ -8,13 +8,13 @@
 #include <deque>
 using namespace std;
 
+const int S = 128; // Scheduling queue size.
 const int N = 8; // Max size for queue sizes.
-const int S = 2; // Scheduling queue size.
 
 int cycle = 0; // Cycle that program is on
-ifstream file("val_trace_gcc.txt");
+ifstream file("val_trace_perl.txt");
 int tag_counter = 0; // Tag counter.
-int RF[128][2];
+
 
 
 enum state_list {
@@ -52,8 +52,10 @@ class instruction {
     int src1_flag = 1;
     int src2_flag = 1;
 
-    instruction *depend_1 = NULL;
-    instruction *depend_2 = NULL;
+    instruction *depend_1_ins = NULL;
+    instruction *depend_2_ins = NULL;
+    string depend_1_tag = "";
+    string depend_2_tag = "";
 
     instruction (int address, int operation, string dest, string src1, string src2) {   // Added instruction constructor to make adding instructions to dispatch easier.
         this->address = address;
@@ -108,6 +110,9 @@ vector<instruction*> execute(0);
 vector<instruction*> fakeROB(0);
 vector<instruction*> disposal(0);
 
+int RF_valid[128];
+instruction* RF_ins[128];
+
 int main(int argc, const char * argv[]) {
     init_RF();
     
@@ -140,8 +145,10 @@ int main(int argc, const char * argv[]) {
 
 void init_RF() {
     for (int i = 0; i < 128; i++) {
-        RF[i][0] = i;
-        RF[i][1] = 0; // 0 means resgister is unused or ready.
+        RF_valid[i] = 1; // 1 means resgister is unused or ready.
+    }
+    for (int i = 0; i < 128; i++) {
+        RF_ins[i] = NULL; // 1 means resgister is unused or ready.
     }
 }
 
@@ -178,6 +185,11 @@ void Execute() {
 
     for (auto it = execute.begin(); it != execute.end();) {
         if ((*it)->exec_latency <= 0) {
+            if ((*it)->dest_o != "-1") {
+                if (RF_ins[stoi((*it)->dest_o)] == (*it)) {
+                    RF_valid[stoi((*it)->dest_o)] = 1;
+                }
+            }
             (*it)->state = WB;
             (*it)->WB_cycle = cycle;
             
@@ -191,36 +203,30 @@ void Execute() {
 }
 
 void Issue() {
+    int count = N + 1;
+    
     std::sort(issue.begin(), issue.end(), [](instruction *a, instruction *b) {  // Sort by tag, ascending order.
         return a->tag < b->tag;
     });
+    
     for (auto it = issue.begin(); it != issue.end();) {
-        if (issue.size() > N) break;
-        if ((*it)->depend_1 != NULL && (*it)->src1_flag == 0) {
-            //if ((*it)->depend_1->state == WB ) {
-            if ((*it)->depend_1->state == WB) {
-                (*it)->src1_flag = 1;
-            }
-        }   
+        //if ((*it)->tag == 548) cout << (*it)->tag << " srcs: " << (*it)->src1_flag << " " << (*it)->src2_flag << " cycle: " << cycle << endl;
+        //if ((*it)->tag == 51) cout << (*it)->tag << " srcs: " << (*it)->src1_flag << " " << (*it)->src2_flag << " cycle: " << cycle << endl;
+        if (count == 0) break;
         
-        if ((*it)->depend_2 != NULL && (*it)->src2_flag == 0) {
-            //if ((*it)->depend_2->state == WB) {
-                if ((*it)->depend_2->state == WB) {
-                (*it)->src2_flag = 1;
-            }
-        }
-
-        if ((*it)->src1_flag && (*it)->src2_flag) {
+        if (((*it)->src1_flag == 1 || (*it)->depend_1_ins->state == WB) && ((*it)->src2_flag == 1 || (*it)->depend_2_ins->state == WB)) {
             (*it)->state = EX;
             (*it)->EX_cycle = cycle;
             (*it)->exec_latency--;
 
             execute.push_back(*it);
             it = issue.erase(it);
+            count--;
         }
         else {
             it++;
         }
+
     }
 }
 
@@ -257,14 +263,13 @@ void Dispatch() {
 // If any one of the instruction's register is marked as -1, it doesn't have that register, and so there's nothing to rename.
 void RenameOps(instruction *dispatched) {
     if (dispatched->dest_o != "-1") {
-        RF[stoi(dispatched->dest_o)][0] = dispatched->tag;    // Here we assign a tag to the register in the RF.
-        dispatched->dest = to_string(RF[stoi(dispatched->dest_o)][0]);
+        dispatched->dest = to_string(dispatched->tag);
     }
     if (dispatched->src1_o != "-1") {
-        dispatched->src1 = to_string(RF[stoi(dispatched->src1_o)][0]);
+        dispatched->src1 = to_string(dispatched->tag);
     }
     if (dispatched->src2_o != "-1") {
-        dispatched->src2 = to_string(RF[stoi(dispatched->src2_o)][0]);
+        dispatched->src2 = to_string(dispatched->tag);
     }
 }
 
@@ -319,20 +324,35 @@ void Fetch() {
         instruction *ins = new instruction(address, operation, dest, src1, src2);
 
         
-        for (auto it = fakeROB.rbegin(); it != fakeROB.rend(); it++) {
-            if ((*it)->dest_o == src1 && (*it)->state != WB && (*it)->dest_o != "-1" && (*it)->tag < tag_counter) {
-                ins->depend_1 = (*it);
+        if (ins->src1 != "-1") {
+            if (RF_valid[stoi(ins->src1)] == 0) { // access RF to see if that register is being used, 0 = yes
+                ins->depend_1_tag = RF_ins[stoi(ins->src1)]->tag; // store tag into varaible
+                ins->depend_1_ins = RF_ins[stoi(ins->src1)];
                 ins->src1_flag = 0;
-                break;
+            }
+            if (RF_valid[stoi(ins->src1)] == 1) {
+                ins->depend_1_tag = "self"; 
+                ins->depend_1_ins = NULL;
+                ins->src1_flag = 1;
             }
         }
-        for (auto it = fakeROB.rbegin(); it != fakeROB.rend(); it++) {
-            if ((*it)->dest_o == src2 && (*it)->state != WB && (*it)->dest_o != "-1" && (*it)->tag < tag_counter) {
-                ins->depend_2 = (*it);
+
+        if (ins->src2 != "-1") {
+            if (RF_valid[stoi(ins->src2)] == 0) { // access RF to see if that register is being used, 0 = yes
+                ins->depend_2_tag = RF_ins[stoi(ins->src2)]->tag; // store tag into varaible
+                ins->depend_2_ins = RF_ins[stoi(ins->src2)];
                 ins->src2_flag = 0;
-                break;
+            }
+            if (RF_valid[stoi(ins->src2)] == 1) {
+                ins->depend_2_tag = "self"; 
+                ins->depend_2_ins = NULL;
+                ins->src2_flag = 1;
             }
         }
+
+
+        RF_valid[stoi(ins->dest)] = 0;
+        RF_ins[stoi(ins->dest)] = ins;
         
             
         ins->IF_cycle = cycle;
@@ -359,7 +379,7 @@ bool isEmpty() {
     if (execute.size() != 0) return false;
     if (issue.size() != 0) return false;
     if (dispatch.size() != 0) return false;
-    if (fetch.size() != 0) return false;
+    //if (fetch.size() != 0) return false;
     if (file.is_open()) return false;
     
     return true;
